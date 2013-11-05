@@ -369,11 +369,7 @@ static int usb_hcd_omap_probe (const struct hc_driver *driver,
 	if (retval)
 		goto err3;
 
-	host_initialized = 1;
-
-	if (!host_enabled)
-		omap_ohci_clock_power(0);
-
+	device_wakeup_enable(hcd->self.controller);
 	return 0;
 err3:
 	iounmap(hcd->regs);
