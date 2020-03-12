@@ -9,13 +9,12 @@
 #include <linux/list.h>
 #include <linux/mm_types.h>
 #include <linux/sizes.h>
-#include <linux/time64.h>
+#include <linux/time.h>
 #include <linux/types.h>
 
+#include <drm/drmP.h>
 #include <drm/drm_fb_helper.h>
-#include <drm/drm_gem.h>
 #include <drm/etnaviv_drm.h>
-#include <drm/gpu_scheduler.h>
 
 struct etnaviv_cmdbuf;
 struct etnaviv_gpu;
@@ -109,20 +108,20 @@ static inline size_t size_vstruct(size_t nelem, size_t elem_size, size_t base)
 static inline unsigned long etnaviv_timeout_to_jiffies(
 	const struct drm_etnaviv_timespec *timeout)
 {
-	struct timespec64 ts, to = {
+	struct timespec ts, to = {
 		.tv_sec = timeout->tv_sec,
 		.tv_nsec = timeout->tv_nsec,
 	};
 
-	ktime_get_ts64(&ts);
+	ktime_get_ts(&ts);
 
 	/* timeouts before "now" have already expired */
-	if (timespec64_compare(&to, &ts) <= 0)
+	if (timespec_compare(&to, &ts) <= 0)
 		return 0;
 
-	ts = timespec64_sub(to, ts);
+	ts = timespec_sub(to, ts);
 
-	return timespec64_to_jiffies(&ts);
+	return timespec_to_jiffies(&ts);
 }
 
 #endif /* __ETNAVIV_DRV_H__ */

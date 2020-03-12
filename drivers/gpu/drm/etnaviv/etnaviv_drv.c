@@ -3,18 +3,12 @@
  * Copyright (C) 2015-2018 Etnaviv Project
  */
 
-#include <linux/component.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/uaccess.h>
 
-#include <drm/drm_debugfs.h>
-#include <drm/drm_drv.h>
-#include <drm/drm_file.h>
-#include <drm/drm_ioctl.h>
-#include <drm/drm_of.h>
-#include <drm/drm_prime.h>
+#include <drm/drmP.h>
 
 #include "etnaviv_cmdbuf.h"
 #include "etnaviv_drv.h"
@@ -293,7 +287,7 @@ static int etnaviv_ioctl_gem_cpu_prep(struct drm_device *dev, void *data,
 	if (args->op & ~(ETNA_PREP_READ | ETNA_PREP_WRITE | ETNA_PREP_NOSYNC))
 		return -EINVAL;
 
-	obj = drm_gem_object_lookup(file, args->handle);
+	obj = drm_gem_object_lookup(dev, file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -314,7 +308,7 @@ static int etnaviv_ioctl_gem_cpu_fini(struct drm_device *dev, void *data,
 	if (args->flags)
 		return -EINVAL;
 
-	obj = drm_gem_object_lookup(file, args->handle);
+	obj = drm_gem_object_lookup(dev, file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -335,7 +329,7 @@ static int etnaviv_ioctl_gem_info(struct drm_device *dev, void *data,
 	if (args->pad)
 		return -EINVAL;
 
-	obj = drm_gem_object_lookup(file, args->handle);
+	obj = drm_gem_object_lookup(dev, file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -414,7 +408,7 @@ static int etnaviv_ioctl_gem_wait(struct drm_device *dev, void *data,
 	if (!gpu)
 		return -ENXIO;
 
-	obj = drm_gem_object_lookup(file, args->handle);
+	obj = drm_gem_object_lookup(dev, file, args->handle);
 	if (!obj)
 		return -ENOENT;
 
@@ -498,9 +492,11 @@ static const struct file_operations fops = {
 
 static struct drm_driver etnaviv_drm_driver = {
 	.driver_features    = DRIVER_GEM | DRIVER_RENDER,
+	.load               = etnaviv_bind,
+	.unload             = etnaviv_unbind,
 	.open               = etnaviv_open,
 	.postclose           = etnaviv_postclose,
-	.gem_free_object_unlocked = etnaviv_gem_free_object,
+	.gem_free_object  = etnaviv_gem_free_object,
 	.gem_vm_ops         = &vm_ops,
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
@@ -527,15 +523,12 @@ static struct drm_driver etnaviv_drm_driver = {
 /*
  * Platform driver:
  */
-static int etnaviv_bind(struct device *dev)
+static int etnaviv_bind(struct drm_device *drm, unsigned long flags)
 {
+	struct platform_device *pdev = dev->platformdev;
+	struct device_node *node = pdev->dev.of_node;
 	struct etnaviv_drm_private *priv;
-	struct drm_device *drm;
 	int ret;
-
-	drm = drm_dev_alloc(&etnaviv_drm_driver, dev);
-	if (IS_ERR(drm))
-		return PTR_ERR(drm);
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
@@ -559,22 +552,12 @@ static int etnaviv_bind(struct device *dev)
 		goto out_free_priv;
 	}
 
-	dev_set_drvdata(dev, drm);
-
-	ret = component_bind_all(dev, drm);
-	if (ret < 0)
-		goto out_destroy_suballoc;
-
 	load_gpu(drm);
-
-	ret = drm_dev_register(drm, 0);
-	if (ret)
-		goto out_unbind;
 
 	return 0;
 
-out_unbind:
-	component_unbind_all(dev, drm);
+// out_unbind:
+// 	component_unbind_all(dev, drm);
 out_destroy_suballoc:
 	etnaviv_cmdbuf_suballoc_destroy(priv->cmdbuf_suballoc);
 out_free_priv:
@@ -585,14 +568,13 @@ out_put:
 	return ret;
 }
 
-static void etnaviv_unbind(struct device *dev)
+static void etnaviv_unbind(struct drm_device *drm)
 {
-	struct drm_device *drm = dev_get_drvdata(dev);
 	struct etnaviv_drm_private *priv = drm->dev_private;
 
 	drm_dev_unregister(drm);
 
-	component_unbind_all(dev, drm);
+	// component_unbind_all(dev, drm);
 
 	dev->dma_parms = NULL;
 
@@ -604,10 +586,10 @@ static void etnaviv_unbind(struct device *dev)
 	drm_dev_put(drm);
 }
 
-static const struct component_master_ops etnaviv_master_ops = {
-	.bind = etnaviv_bind,
-	.unbind = etnaviv_unbind,
-};
+// static const struct component_master_ops etnaviv_master_ops = {
+// 	.bind = etnaviv_bind,
+// 	.unbind = etnaviv_unbind,
+// };
 
 static int compare_of(struct device *dev, void *data)
 {
@@ -624,41 +606,34 @@ static int compare_str(struct device *dev, void *data)
 static int etnaviv_pdev_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct component_match *match = NULL;
-
-	if (!dev->platform_data) {
-		struct device_node *core_node;
-
-		for_each_compatible_node(core_node, NULL, "vivante,gc") {
-			if (!of_device_is_available(core_node))
-				continue;
-
-			drm_of_component_match_add(&pdev->dev, &match,
-						   compare_of, core_node);
-		}
-	} else {
-		char **names = dev->platform_data;
-		unsigned i;
-
-		for (i = 0; names[i]; i++)
-			component_match_add(dev, &match, compare_str, names[i]);
+	if (!dev.of_node) {
+		dev_err(&pdev->dev, "device-tree data is missing\n");
+		return -ENXIO;
 	}
 
-	return component_master_add_with_match(dev, &etnaviv_master_ops, match);
+	return drm_platform_init(&etnaviv_drm_driver, pdev);
 }
 
 static int etnaviv_pdev_remove(struct platform_device *pdev)
 {
-	component_master_del(&pdev->dev, &etnaviv_master_ops);
+	return drm_platform_exit(&etnaviv_drm_driver, pdev);
 
 	return 0;
 }
+
+static struct of_device_id etnaviv_of_match[] = {
+		{ .compatible = "vivante,gc", },
+		{ },
+};
+MODULE_DEVICE_TABLE(of, etnaviv_of_match);
 
 static struct platform_driver etnaviv_platform_driver = {
 	.probe      = etnaviv_pdev_probe,
 	.remove     = etnaviv_pdev_remove,
 	.driver     = {
+		.owner  = THIS_MODULE,
 		.name   = "etnaviv",
+		.of_match_table = etnaviv_of_match,
 	},
 };
 
