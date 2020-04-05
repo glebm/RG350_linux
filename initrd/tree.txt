@@ -2,7 +2,6 @@
 dir	/dev		0755	0 0
 nod	/dev/console	0644	0 0	c 5	1
 nod	/dev/event0	0644	0 0	c 13	64
-nod	/dev/loop0	0660	0 0	b 7	0
 nod	/dev/mmcblk0	0644	0 0	b 179	0
 nod	/dev/mmcblk0p1	0644	0 0	b 179	1
 nod	/dev/mmcblk0p2	0644	0 0	b 179	2
