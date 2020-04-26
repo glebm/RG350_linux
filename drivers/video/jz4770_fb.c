@@ -273,7 +273,6 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	const struct jz_panel *panel = jzfb->panel;
 	unsigned int num, denom;
 	unsigned int framerate, divider;
-	unsigned int original_xres = var->xres;
 
 
 	/* The minimum input size for the IPU to work is 4x4 */
@@ -304,7 +303,7 @@ static int jzfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	/* Reserve space for triple buffering. */
 	var->yres_virtual = var->yres * 3;
 
-	var->xres_virtual = original_xres;
+	var->xres_virtual = var->xres;
 	var->vmode = FB_VMODE_NONINTERLACED;
 
 	var->yoffset = 0;
